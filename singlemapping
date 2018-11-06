@@ -1,0 +1,107 @@
+singlemapping <- function(X,y,covariate=NULL,num_perm=10000,core=16){
+
+#This function implements the single locus mapping based on linear regression. 
+
+#Author: Zitong Li, University of Helsinki, Email:zitong.li@helsinki.fi
+
+#Input values: 
+
+#-X: a data matrix containing genotypes, rows represent individuals, and column represent markers.
+
+#-y: a data vector containing phenotypes.
+
+#-covariate: environmental or other confounding factors such as age, sex, locations..., default is null
+
+#num_perm: the number of replicates in the permutation test, default is 10000
+
+#core: the number of cores to be used for parallel computation, to speed up the permutation test 
+
+#Output values:
+
+#pval: the original p-value of each SNP, calculated from the t-test
+
+#pval.corr: the adjusted p-value of each SNP by the permutation test
+
+#Coef: the estimated effect size of each SNP
+
+
+
+library(doParallel)
+
+X <- as.matrix(X)
+
+y <- as.matrix(y)
+
+k <- dim(covariate)[2]
+
+p <- dim(X)[2]
+n <- dim(y)[1]
+T <- NULL
+Pval <- NULL
+Coef <- NULL
+for (j in 1:p){
+
+if (!is.null(covariate)){
+covariate <- as.matrix(covariate)
+fit <- summary(lm(y~covariate+X[,j]))
+Pval[j] <-  fit$coefficients[k+2,4]
+T[j] <-  abs(fit$coefficients[k+2,3])
+Coef[j] <- abs(fit$coefficients[k+2,1])
+}else{
+fit <- summary(lm(y~X[,j]))
+Pval[j] <-  fit$coefficients[2,4]
+T[j] <-  abs(fit$coefficients[2,3])
+Coef[j] <- abs(fit$coefficients[2,1])
+}
+
+}
+
+To <- sort(abs(T))
+
+Ord <- order(T)
+
+M <- num_perm
+
+cl <- makeCluster(core)
+ 
+registerDoParallel(cl)
+
+TR <- foreach(i=1:M, .combine=rbind) %dopar% { 
+
+
+IND <- sample(1:n,replace=FALSE)
+
+ynew <- y[IND,]
+
+TRp <- NULL
+
+for(j in 1:p){
+
+if (!is.null(covariate)){
+fit <- summary(lm(ynew~covariate+X[,j]))
+TRp[j] <-  abs(fit$coefficients[k+2,3])
+}else{
+fit <- summary(lm(ynew~X[,j]))
+TRp[j] <-  abs(fit$coefficients[2,3])
+}
+
+}
+
+TRp[Ord] 
+}
+
+stopCluster(cl)  
+
+
+Qmat <- t(apply(TR,1,cummax))
+
+Padj <- apply(t(matrix(rep(To,M),p)) < Qmat, 2, mean)
+
+o <- order(Ord)
+
+returnList <- list("pval" = Pval,
+                     "pval.corr" =Padj[o], "Coef"=Coef)
+
+  return(returnList)
+
+}
