@@ -1,0 +1,106 @@
+##############################################Function: normal_lambdachoose()##################################################################
+
+#The normal_lambdachoose() function can used to find a value of tuning parameter lambda for MG-LASSO, which can be used in the stability 
+#selection or multiple-split test.
+
+#Input values: 
+
+#-Y: a vector containing phenotypes.
+
+#-X: a data matrix containing genotypes, rows represent individuals, and column represent markers.
+
+
+#-nz: the number of nonzero coefficients
+
+#Output values:
+
+#-lambdaop: a single value of lambda, which can be used in the subsequent analysis.
+
+#qt: the average number of markers being selected by LAD LASSO, corresponding to lambdaop.
+
+
+normal_lambdachoose <- function(Y,X,nz=20){
+
+require('glmnet')
+lambdawhole <- rep(0,10)
+
+qt <- rep(0,10)
+
+
+for (i in 1:10){
+
+  N <- length(Y)
+
+  set <- sample.int(N, size = floor(N/2))
+
+  Ys <- Y[set]
+
+  Xs <- X[set,]
+  
+  bresult <- glmnet(Xs, Ys, alpha=0.05 )
+  
+  qn <- bresult$df
+
+
+  lambdawhole[i] <- bresult$lambda[which.min(abs(qn-nz))]
+  qt[i] <- qn[which.min(abs(qn-nz))]
+
+  }
+
+  lambdaop <- mean(lambdawhole)
+  return(list(lambdaop=lambdaop, qt=qt))
+
+}
+
+
+####################################Function:  normal_stability()#############################################################
+
+
+
+#The normal_stability() function is used to calculate the stability selection frequencies for the markers on the basis of 
+#MG-LASSO method.
+
+#Input values: 
+
+#-Y: a vector containing phenotypes.
+
+#-X: a data matrix containing genotypes, rows represent individuals, and column represent markers.
+
+#-lambda: a single value of the tuning parameter lambda,e.g. can be calculated by the function lambdachoose().
+
+#B-number of repilicates, default value is 100. 
+
+#efp: the expected number of false positves we want to control , default value is 1.
+
+
+#Output values:
+
+#-freq: a p size vector,recording the stability frequencies of each marker over B replicates
+
+#-markersig: The indices of markers which are judged to be significant by stability selection
+
+
+normal_stability <- function(Y,X,lambda=0.1, B=100, efp=1){
+
+ require('glmnet')
+
+ N <- length(Y)
+ Q <- ncol(X)
+ qn <- rep(0,B)
+ freq <- rep(0,Q)
+
+ for (i in 1:B){
+    set <- sample.int(N, size = floor(N/2))
+    Ys <- Y[set]
+    Xs <- X[set,]
+    bresult <- glmnet(Xs, Ys, lambda=lambda, alpha=0.05)         
+    freq[which(abs(bresult$beta)>0)] <- freq[which(abs(bresult$beta)>0)]+1/B
+    qn[i]<-sum(abs(bresult$beta)>0)
+  }
+
+  markersig <- which( freq > 1/2 + mean(qn)^2/(Q*efp*2)) #detect significant markers
+          
+  return(list(freq=freq, markersig = markersig))
+
+
+}
