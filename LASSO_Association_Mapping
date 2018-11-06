@@ -1,0 +1,93 @@
+#load genotype data, missing genotypes have been imputed based on allele frequencies. In the genotype matrix x,each row represents an individual, and each column represents a SNP. Genotypes are coded as 0,1, and 2 for AA, AB, BB, respectively. 
+
+load("genetic_data_file.RData")
+
+#load the individual ID 
+
+IND1 <- read.table('genotype_individual_names.indv',head=FALSE) 
+
+IND1 <- as.matrix(IND1)
+
+
+
+#load the phenotype data: latent traits (intercept and slope estimated from 'breeding_value.R')
+pheno <- read.csv('phenotypic_data_file.csv',head=TRUE)
+
+
+#extract the individual IDs from the phenotype data
+IND2 <- as.matrix(pheno[,1])
+
+
+#Match the genotype and phenotype data. genotype: X, phenotypes: y
+
+IND <- match(IND2,IND1)
+
+X <- x[IND[!is.na(IND)],]
+
+y <- pheno[,c(2,3)]
+
+y <- y[!is.na(IND),]
+
+###########################################################################
+p <- dim(X)[2] #total number of SNPs
+
+#estimate the sample covariance matrix between individuals########
+
+X <- as.matrix(X)
+
+Xs <- scale(X,center=TRUE,scale=TRUE)
+
+A <- tcrossprod(Xs)/p
+
+
+#Calculate the Principal components of the covariance matrix
+
+
+eig.vec <- eigen(A)$vectors
+
+#Take the first 5 PCs into the subsequent analysis
+
+PC <- eig.vec[,c(1,2,3,4,5)]
+
+
+##############################################################################
+
+#Before the association analysis, please install package 'glmnet' and 'doParallel'
+#load source codes for LASSO and stability selection
+source('Stability_Selection.R')
+
+
+#load source code for Single SNP analysis
+source('singlemapping.R')
+
+
+#specify the phenotype, here is the intercept latent trait
+
+Y <- y[,1]
+
+#Slope
+#Y <- y[,2]
+
+
+#Specifies the number of SNPs that we want LASSO to select into the model during each run. A good choice of q might gurantee that 0.15<q^2/(p*2)<0.3 (at most 0.5) based on expriences. For example, if q=200, then q^2/(p*2)= 0.197
+
+q <-200
+
+#Calculate a good value of the lambda parameter in LASSO, guranteeing that the number of SNPs (the number of nonzero coefficients) entering the model is roughly 200
+
+#In addition to the SNPs,5 first PC components were considered as extra covariates in the model
+
+
+trial <- normal_lambdachoose(Y,cbind(PC,X),nz=q)
+
+#Stability selection: here, efp is the expected number of false positives, efp=1 
+should be a conservative choice for our data. To be more liberal, we may use efp=5.
+
+result <- normal_stability(Y,cbind(PC,X),lambda=trial$lambdaop, B=1000, efp=5)
+
+
+#result$freq is the selection frequencies for each SNP. The bigger the frequency, the better evidence that this SNP is associated with the phenotype
+
+#result$markersig is the significant SNPs judged by the stability selection criteria, e.g. to allow number of efp to be smaller than 5
+
+
